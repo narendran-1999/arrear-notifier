@@ -10,9 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1) Pull the repository contents.
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2) Prepare the Python runtime used by the monitor script.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -23,20 +25,22 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      # 3) Run a single monitoring pass.
+      # Only Telegram-related values are passed via secrets; non-secret config
+      # such as target URL and keywords live in monitor/monitor.py.
+      # MONITORING_ENABLED can be set as a secret to toggle monitoring on/off
+      # without editing code (use "true" or "false").
       - name: Run monitor
         env:
-          TARGET_URL: ${{ secrets.TARGET_URL }}
-          MATCH_KEYWORDS: ${{ secrets.MATCH_KEYWORDS }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
           STATE_FILE: state/state.json
-          MONITORING_ENABLED: ${{ secrets.MONITORING_ENABLED || 'true' }}
-          SIMILARITY_THRESHOLD: ${{ secrets.SIMILARITY_THRESHOLD || '0.6' }}
-          ERROR_THROTTLE_MINUTES: ${{ secrets.ERROR_THROTTLE_MINUTES || '60' }}
+          MONITORING_ENABLED: ${{ secrets.MONITORING_ENABLED }}
         run: |
           python -m monitor.monitor
 
+      # 4) Persist any updated monitor state so that GitHub Pages can serve it.
       - name: Commit updated state
         if: ${{ success() || failure() }}
         run: |

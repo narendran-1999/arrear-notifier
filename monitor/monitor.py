@@ -13,6 +13,10 @@ This module is designed to be:
 - Runnable in GitHub Actions on a daily schedule.
 """
 
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
+
 from __future__ import annotations
 
 import json
@@ -27,8 +31,32 @@ from bs4 import BeautifulSoup
 from difflib import SequenceMatcher
 
 
+# ---------------------------------------------------------------------------
+# Core, non-secret configuration
+# ---------------------------------------------------------------------------
+
+# College website URL to monitor for announcements.
+DEFAULT_TARGET_URL = "https://www.psgtech.edu/"
+
+# Comma-separated keywords used for fuzzy matching against announcement text.
+DEFAULT_MATCH_KEYWORDS = "time limit exceeded"
+
+# Similarity threshold in the range [0, 1]. Higher = stricter match.
+DEFAULT_SIMILARITY_THRESHOLD = 0.8
+
+# Minimum minutes between repeated error alerts with the same signature.
+DEFAULT_ERROR_THROTTLE_MINUTES = 60
+
+# Note: Monitoring on/off is controlled via MONITORING_ENABLED environment
+# variable (set via GitHub Secrets). There is no constant here to avoid confusion.
+
+# ISO format for datetime strings
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
+
+# ---------------------------------------------------------------------------
+# Functions to handle datetime strings
+# ---------------------------------------------------------------------------
 
 def _now() -> datetime:
     """Return current UTC time with timezone info."""
@@ -47,6 +75,10 @@ def _parse_dt(raw: str) -> Optional[datetime]:
     except Exception:
         return None
 
+
+# ---------------------------------------------------------------------------
+# Data classes - Announcement & MonitorState
+# ---------------------------------------------------------------------------
 
 @dataclass
 class Announcement:
@@ -104,6 +136,10 @@ class MonitorState:
         )
 
 
+# ---------------------------------------------------------------------------
+# Use JSON to load & save state
+# ---------------------------------------------------------------------------
+
 def load_state(path: str) -> MonitorState:
     """
     Load state from JSON file.
@@ -134,13 +170,18 @@ def save_state(path: str, state: MonitorState) -> None:
     os.replace(tmp_path, path)
 
 
+# ---------------------------------------------------------------------------
+# Configuration for one run of the monitor
+# ---------------------------------------------------------------------------
+
 @dataclass
 class Config:
     """
-    Configuration loaded from environment variables.
+    Configuration for one run of the monitor.
 
-    All sensitive values (bot token, chat IDs) are expected to be provided via
-    environment variables or GitHub Secrets, never committed to the repo.
+    Only Telegram-related values are read from environment variables / GitHub
+    Secrets. All other tunables are module-level constants above so they are
+    visible in version control and easy to tweak.
     """
 
     target_url: str
@@ -155,37 +196,45 @@ class Config:
 
 
 def load_config() -> Config:
-    """Read configuration from environment variables with sensible defaults."""
-    try:
-        similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.6"))
-    except ValueError:
-        similarity_threshold = 0.6
+    """
+    Build a Config object using module-level defaults for non-secret values
+    and environment variables only for Telegram credentials.
 
-    state_file = os.getenv("STATE_FILE", os.path.join(os.path.dirname(__file__), "..", "state", "state.json"))
+    STATE_FILE and MONITORING_ENABLED can be overridden via environment if needed
+    (useful for toggling monitoring via GitHub Secrets without code changes).
+    """
+    # Allow overriding the state file path from CI or local runs if needed.
+    state_file_default = os.path.join(os.path.dirname(__file__), "..", "state", "state.json")
+    state_file = os.getenv("STATE_FILE", state_file_default)
     state_file = os.path.abspath(state_file)
 
-    monitoring_enabled_env = os.getenv("MONITORING_ENABLED", "true").lower()
-    monitoring_enabled = monitoring_enabled_env not in {"0", "false", "no", "off"}
-
-    error_throttle_minutes_env = os.getenv("ERROR_THROTTLE_MINUTES", "60")
-    try:
-        error_throttle_minutes = int(error_throttle_minutes_env)
-    except ValueError:
-        error_throttle_minutes = 60
+    # Monitoring on/off is controlled exclusively via MONITORING_ENABLED environment
+    # variable. Defaults to True if not set (for local testing convenience), but in
+    # production this should always be set via GitHub Secrets.
+    monitoring_enabled_env = os.getenv("MONITORING_ENABLED")
+    if monitoring_enabled_env is not None:
+        monitoring_enabled = monitoring_enabled_env.lower() not in {"0", "false", "no", "off"}
+    else:
+        # Default to enabled if not specified (for local testing).
+        monitoring_enabled = True
 
     cfg = Config(
-        target_url=os.environ["TARGET_URL"],
-        match_keywords=os.environ["MATCH_KEYWORDS"],
-        similarity_threshold=similarity_threshold,
+        target_url=DEFAULT_TARGET_URL,
+        match_keywords=DEFAULT_MATCH_KEYWORDS,
+        similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD,
         telegram_bot_token=os.environ["TELEGRAM_BOT_TOKEN"],
         telegram_channel_id=os.environ["TELEGRAM_CHANNEL_ID"],
         telegram_owner_chat_id=os.environ["TELEGRAM_OWNER_CHAT_ID"],
         state_file=state_file,
         monitoring_enabled=monitoring_enabled,
-        error_throttle_minutes=error_throttle_minutes,
+        error_throttle_minutes=DEFAULT_ERROR_THROTTLE_MINUTES,
     )
     return cfg
 
+
+# ---------------------------------------------------------------------------
+# Telegram client class
+# ---------------------------------------------------------------------------
 
 class TelegramClient:
     """Simple Telegram client using HTTPS Bot API."""
@@ -214,6 +263,10 @@ class TelegramClient:
             print(f"[telegram] Exception while sending message: {exc}", file=sys.stderr)
 
 
+# ---------------------------------------------------------------------------
+# Fetch & parse the target webpage
+# ---------------------------------------------------------------------------
+
 def fetch_page(url: str) -> str:
     """Fetch target page and return HTML text."""
     resp = requests.get(url, timeout=30)
@@ -225,28 +278,53 @@ def extract_announcements(html: str) -> list[Dict[str, Any]]:
     """
     Extract candidate announcement blocks from the HTML.
 
-    This implementation is intentionally conservative and generic so it can be
-    adapted to different college websites later by adjusting the parsing logic.
+    Primary strategy (college-specific):
+    - Look for <a> elements with class "active" that are nested anywhere inside
+      a <div> with class "owl-item".
+    - Ignore any "owl-item" elements that also have class "cloned" to avoid
+      duplicates created by carousel libraries.
+
+    Fallback strategy:
+    - If nothing is found using the structure above, fall back to a more
+      generic heuristic based on <li> and <a> tags so the script still works
+      even if the page structure changes.
     """
     soup = BeautifulSoup(html, "html.parser")
 
-    # Heuristic: look for list items and table rows as announcements.
     candidates: list[Dict[str, Any]] = []
 
-    for li in soup.find_all("li"):
-        text = " ".join(li.get_text(strip=True).split())
-        if not text:
+    # Primary parsing: carousel items
+    for item in soup.select("div.owl-item"):
+        classes = item.get("class", [])
+        if "cloned" in classes:
+            # Skip cloned carousel entries to avoid duplicates.
             continue
-        link = li.find("a")
-        pdf_url = None
-        if link and link.get("href"):
-            href = link["href"].strip()
-            if href.lower().endswith(".pdf"):
-                pdf_url = href
-        candidates.append({"text": text, "pdf_url": pdf_url})
 
-    # Fallback: also inspect anchor tags if list-based parsing yields nothing.
+        for a_tag in item.select("a.active"):
+            text = " ".join(a_tag.get_text(strip=True).split())
+            if not text:
+                continue
+            href = (a_tag.get("href") or "").strip()
+            pdf_url = href if href.lower().endswith(".pdf") else None
+            candidates.append({"text": text, "pdf_url": pdf_url})
+
+    # Fallback parsing: generic list / link-based scanning
     if not candidates:
+        # Heuristic: look for list items that may contain announcement links.
+        for li in soup.find_all("li"):
+            text = " ".join(li.get_text(strip=True).split())
+            if not text:
+                continue
+            link = li.find("a")
+            pdf_url = None
+            if link and link.get("href"):
+                href = link["href"].strip()
+                if href.lower().endswith(".pdf"):
+                    pdf_url = href
+            candidates.append({"text": text, "pdf_url": pdf_url})
+
+    if not candidates:
+        # Last-resort fallback: inspect all anchors.
         for a in soup.find_all("a"):
             text = " ".join(a.get_text(strip=True).split())
             if not text:
@@ -301,6 +379,10 @@ def detect_announcement(candidates: list[Dict[str, Any]], cfg: Config) -> Option
     return None
 
 
+# ---------------------------------------------------------------------------
+# Decide whether to send an error alert
+# ---------------------------------------------------------------------------
+
 def should_send_error_alert(state: MonitorState, signature: str, cfg: Config) -> bool:
     """
     Decide whether to send a new error alert to the owner.
@@ -317,6 +399,10 @@ def should_send_error_alert(state: MonitorState, signature: str, cfg: Config) ->
     delta = _now() - last_time
     return delta >= timedelta(minutes=cfg.error_throttle_minutes)
 
+
+# ---------------------------------------------------------------------------
+# Update state for a failure or success
+# ---------------------------------------------------------------------------
 
 def update_for_error(state: MonitorState, error_message: str, cfg: Config) -> MonitorState:
     """Update state for a failure and return it."""
@@ -344,6 +430,9 @@ def update_for_success(state: MonitorState, announcement: Optional[Announcement]
 
     return state
 
+# ---------------------------------------------------------------------------
+# Send Telegram notifications
+# ---------------------------------------------------------------------------
 
 def send_public_announcement(telegram: TelegramClient, cfg: Config, ann: Announcement, target_url: str) -> None:
     """Send a formatted announcement message to the public channel."""
@@ -365,6 +454,9 @@ def send_private_error(telegram: TelegramClient, cfg: Config, message: str) -> N
     text = f"⚠️ <b>Monitoring error</b>\n\n<code>{message}</code>"
     telegram.send_message(cfg.telegram_owner_chat_id, text, parse_mode="HTML", disable_web_page_preview=True)
 
+# ---------------------------------------------------------------------------
+# Run monitoring
+# ---------------------------------------------------------------------------
 
 def run_monitor() -> int:
     """
@@ -431,4 +523,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>College Announcement Monitor</title>
+    <title>Arrear Notification Monitor</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <main class="page">
       <header class="page__header">
-        <h1>College Announcement Monitor</h1>
+        <h1>Arrear Notification Monitor</h1>
         <p class="page__subtitle">
-          Automatic arrear / exam notification watcher powered by GitHub Actions and Telegram.
+          Arrear exam notification watcher & automatic Telegram alerts
         </p>
       </header>
 
@@ -56,13 +56,26 @@
       </section>
 
       <section class="card card--secondary">
-        <h2 class="card__title">How this works</h2>
-        <ul class="card__list">
-          <li>Daily GitHub Actions job checks the college website for new announcements.</li>
-          <li>Relevant notifications are detected using fuzzy keyword matching.</li>
-          <li>New announcements are pushed to a Telegram channel and recorded in <code>state/state.json</code>.</li>
-          <li>This page reads the JSON file and shows the last detected announcement for 30 days.</li>
-        </ul>
+        <h2 class="card__title">Quick links</h2>
+        <div class="link-grid">
+          <!-- Update these URLs to match the actual college systems -->
+          <a
+            href="https://example.edu"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="link-grid__item"
+          >
+            College website
+          </a>
+          <a
+            href="https://students.example.edu"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="link-grid__item"
+          >
+            Student portal
+          </a>
+        </div>
       </section>
 
       <footer class="page__footer">
