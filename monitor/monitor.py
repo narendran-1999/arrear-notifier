@@ -29,6 +29,8 @@ from typing import Any, Dict, Optional
 import requests
 from bs4 import BeautifulSoup
 from difflib import SequenceMatcher
+from dotenv import load_dotenv
+import urllib3
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +41,7 @@ from difflib import SequenceMatcher
 DEFAULT_TARGET_URL = "https://www.psgtech.edu/"
 
 # Comma-separated keywords used for fuzzy matching against announcement text.
-DEFAULT_MATCH_KEYWORDS = "time limit exceeded"
+DEFAULT_MATCH_KEYWORDS = "time limit exceeded, reappearance"
 
 # Similarity threshold in the range [0, 1]. Higher = stricter match.
 DEFAULT_SIMILARITY_THRESHOLD = 0.8
@@ -52,6 +54,32 @@ DEFAULT_ERROR_THROTTLE_MINUTES = 60
 
 # ISO format for datetime strings
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+
+
+# ---------------------------------------------------------------------------
+# Environment and SSL setup
+# ---------------------------------------------------------------------------
+
+# Suppress SSL warnings for sites with weak DH keys (common on older college websites).
+# Browsers accept these, but Python's SSL library is stricter.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Load environment variables from .env file (for local testing).
+# This looks for monitor/.env relative to this file's location.
+# In production (GitHub Actions), environment variables are set directly.
+_env_path = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(_env_path):
+    load_dotenv(_env_path)
+
+# Enable verbose logs by setting DEBUG=1 (or true/yes/on).
+_DEBUG_ENV = os.getenv("DEBUG", "").strip().lower()
+DEBUG = _DEBUG_ENV in {"1", "true", "yes", "on"}
+
+
+def _debug(message: str) -> None:
+    """Print debug messages only when DEBUG is enabled."""
+    if DEBUG:
+        print(message)
 
 
 # ---------------------------------------------------------------------------
@@ -268,8 +296,32 @@ class TelegramClient:
 # ---------------------------------------------------------------------------
 
 def fetch_page(url: str) -> str:
-    """Fetch target page and return HTML text."""
-    resp = requests.get(url, timeout=30)
+    """
+    Fetch target page and return HTML text.
+    
+    Uses a custom SSL context with relaxed security level to handle websites with
+    weak SSL configurations (e.g., small Diffie-Hellman keys) that browsers accept
+    but Python's SSL library rejects by default. This is common on older college websites.
+    """
+    import ssl
+    from requests.adapters import HTTPAdapter
+    from urllib3.poolmanager import PoolManager
+    
+    # Create SSL context with relaxed security level for weak DH keys
+    ssl_context = ssl.create_default_context()
+    ssl_context.set_ciphers("DEFAULT:@SECLEVEL=1")
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    
+    # Use a custom HTTP adapter with the relaxed SSL context
+    class CustomHTTPAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            kwargs["ssl_context"] = ssl_context
+            return super().init_poolmanager(*args, **kwargs)
+    
+    session = requests.Session()
+    session.mount("https://", CustomHTTPAdapter())
+    resp = session.get(url, timeout=30, verify=False)
     resp.raise_for_status()
     return resp.text
 
@@ -290,64 +342,161 @@ def extract_announcements(html: str) -> list[Dict[str, Any]]:
       even if the page structure changes.
     """
     soup = BeautifulSoup(html, "html.parser")
-
     candidates: list[Dict[str, Any]] = []
 
-    # Primary parsing: carousel items
-    for item in soup.select("div.owl-item"):
-        classes = item.get("class", [])
-        if "cloned" in classes:
-            # Skip cloned carousel entries to avoid duplicates.
-            continue
+    def add_candidate(text: str, pdf_url: Optional[str]) -> None:
+        cleaned = " ".join(text.split())
+        if not cleaned:
+            return
+        candidates.append({"text": cleaned, "pdf_url": pdf_url})
 
-        for a_tag in item.select("a.active"):
-            text = " ".join(a_tag.get_text(strip=True).split())
-            if not text:
+    # ------------------------------------------------------------------
+    # Primary (college-specific): notifications ticker
+    # All notifications are inside a div with BOTH classes:
+    #   tg-ticker owl-carousel
+    # ------------------------------------------------------------------
+    ticker = soup.select_one("div.tg-ticker.owl-carousel")
+    if ticker:
+        _debug("[extract] Found ticker container: div.tg-ticker.owl-carousel")
+
+        # PSG-style ticker: notifications are direct children (often <section>).
+        # We parse direct children first to avoid accidentally grabbing unrelated
+        # nested markup.
+        direct_items = ticker.find_all(recursive=False)
+        _debug(f"[extract] Ticker direct children found: {len(direct_items)}")
+        for item in direct_items:
+            classes = item.get("class", [])
+            if isinstance(classes, list) and "cloned" in classes:
                 continue
-            href = (a_tag.get("href") or "").strip()
-            pdf_url = href if href.lower().endswith(".pdf") else None
-            candidates.append({"text": text, "pdf_url": pdf_url})
 
-    # Fallback parsing: generic list / link-based scanning
+            text = item.get_text(strip=True)
+            pdf_url = None
+            for link in item.select("a"):
+                href = (link.get("href") or "").strip()
+                if href.lower().endswith(".pdf"):
+                    pdf_url = href
+                    break
+            add_candidate(text, pdf_url)
+
+        # Generic ticker rule (if direct-children parsing yields nothing):
+        # Look for anchors with class 'active' anywhere inside the ticker and
+        # ignore duplicates that are part of a 'cloned' element.
+        if not candidates:
+            anchors = ticker.select("a.active")
+            _debug(f"[extract] Ticker active anchors found: {len(anchors)}")
+            for a_tag in anchors:
+                cloned = False
+                for parent in a_tag.parents:
+                    if not hasattr(parent, "get"):
+                        continue
+                    classes = parent.get("class", [])
+                    if isinstance(classes, list) and "cloned" in classes:
+                        cloned = True
+                        break
+                if cloned:
+                    continue
+
+                text = a_tag.get_text(strip=True)
+                href = (a_tag.get("href") or "").strip()
+                pdf_url = href if href.lower().endswith(".pdf") else None
+                add_candidate(text, pdf_url)
+
+        # Final ticker fallback: common OwlCarousel item wrappers.
+        if not candidates:
+            items = ticker.select(".owl-item, .item")
+            _debug(f"[extract] Ticker item blocks found: {len(items)}")
+            for item in items:
+                classes = item.get("class", [])
+                if isinstance(classes, list) and "cloned" in classes:
+                    continue
+                text = item.get_text(strip=True)
+                pdf_url = None
+                for link in item.select("a"):
+                    href = (link.get("href") or "").strip()
+                    if href.lower().endswith(".pdf"):
+                        pdf_url = href
+                        break
+                add_candidate(text, pdf_url)
+
+    # ------------------------------------------------------------------
+    # Fallback: scan other owl-carousel containers (best-effort resilience)
+    # ------------------------------------------------------------------
     if not candidates:
-        # Heuristic: look for list items that may contain announcement links.
+        _debug("[extract] No ticker candidates; scanning other owl-carousel containers")
+        for carousel in soup.select("div.owl-carousel"):
+            for item in carousel.select("div.owl-item, div.item"):
+                classes = item.get("class", [])
+                if isinstance(classes, list) and "cloned" in classes:
+                    continue
+                text = item.get_text(strip=True)
+                pdf_url = None
+                for link in item.select("a"):
+                    href = (link.get("href") or "").strip()
+                    if href.lower().endswith(".pdf"):
+                        pdf_url = href
+                        break
+                add_candidate(text, pdf_url)
+
+    # ------------------------------------------------------------------
+    # Last resort: whole-page scan (can include navigation items)
+    # ------------------------------------------------------------------
+    if not candidates:
+        _debug("[extract] No carousel candidates; falling back to generic scanning")
         for li in soup.find_all("li"):
-            text = " ".join(li.get_text(strip=True).split())
+            text = li.get_text(strip=True)
             if not text:
                 continue
             link = li.find("a")
             pdf_url = None
             if link and link.get("href"):
-                href = link["href"].strip()
+                href = (link.get("href") or "").strip()
                 if href.lower().endswith(".pdf"):
                     pdf_url = href
-            candidates.append({"text": text, "pdf_url": pdf_url})
+            add_candidate(text, pdf_url)
 
     if not candidates:
-        # Last-resort fallback: inspect all anchors.
         for a in soup.find_all("a"):
-            text = " ".join(a.get_text(strip=True).split())
+            text = a.get_text(strip=True)
             if not text:
                 continue
-            href = a.get("href", "").strip()
+            href = (a.get("href") or "").strip()
             pdf_url = href if href.lower().endswith(".pdf") else None
-            candidates.append({"text": text, "pdf_url": pdf_url})
+            add_candidate(text, pdf_url)
 
-    return candidates
+    # De-duplicate while preserving order.
+    seen: set[str] = set()
+    deduped: list[Dict[str, Any]] = []
+    for cand in candidates:
+        key = f"{(cand.get('text') or '').lower()}|{cand.get('pdf_url') or ''}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cand)
+    return deduped
 
 
 def fuzzy_matches(text: str, keywords: str, threshold: float) -> bool:
     """
     Check if any keyword fuzzy-matches the given text above the threshold.
 
-    Keywords are comma-separated; we perform case-insensitive similarity using
-    difflib.SequenceMatcher.
+    Keywords are comma-separated. We perform case-insensitive matching using:
+    1. Substring check: if keyword appears anywhere in the text, it's a match
+    2. Fuzzy similarity: if substring check fails, use SequenceMatcher ratio
+
+    This handles both exact substring matches (e.g., "reappearance" in a longer
+    announcement text) and fuzzy matches for typos/variations.
     """
     text_norm = text.lower()
     for raw_kw in keywords.split(","):
         kw = raw_kw.strip().lower()
         if not kw:
             continue
+        
+        # First check: if keyword appears as substring, it's definitely a match
+        if kw in text_norm:
+            return True
+        
+        # Second check: fuzzy similarity for partial matches and typos
         ratio = SequenceMatcher(None, text_norm, kw).ratio()
         if ratio >= threshold:
             return True
@@ -361,6 +510,7 @@ def detect_announcement(candidates: list[Dict[str, Any]], cfg: Config) -> Option
     The 'id' for de-duplication is based on the text (and PDF URL if present).
     """
     now_iso = _format_dt(_now())
+    _debug(f"[detect] Checking {len(candidates)} candidates for {cfg.match_keywords!r}")
     for cand in candidates:
         text = cand.get("text") or ""
         pdf_url = cand.get("pdf_url")
@@ -370,6 +520,7 @@ def detect_announcement(candidates: list[Dict[str, Any]], cfg: Config) -> Option
             ann_id = text
             if pdf_url:
                 ann_id = f"{text}|{pdf_url}"
+            _debug(f"[detect] Match: {text[:120]!r}")
             return Announcement(
                 id=ann_id,
                 text=text,
@@ -484,12 +635,16 @@ def run_monitor() -> int:
     try:
         html = fetch_page(cfg.target_url)
         candidates = extract_announcements(html)
+        print(f"[monitor] Found {len(candidates)} candidate announcement(s)")
+        
         announcement = detect_announcement(candidates, cfg)
 
         is_new = False
         if announcement:
             if not state.last_announcement or state.last_announcement.id != announcement.id:
                 is_new = True
+        else:
+            _debug("[monitor] No matching announcement found")
 
         # Update state and send public alert if needed.
         state = update_for_success(state, announcement, cfg)
@@ -497,6 +652,8 @@ def run_monitor() -> int:
 
         if announcement and is_new:
             send_public_announcement(telegram, cfg, announcement, cfg.target_url)
+        elif announcement and not is_new:
+            _debug("[monitor] Skipping alert (already notified)")
 
         print("[monitor] Run completed successfully.")
         return 0
