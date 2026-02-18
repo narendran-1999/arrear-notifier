@@ -503,31 +503,44 @@ def fuzzy_matches(text: str, keywords: str, threshold: float) -> bool:
     return False
 
 
-def detect_announcement(candidates: list[Dict[str, Any]], cfg: Config) -> Optional[Announcement]:
+def detect_announcements(
+    candidates: list[Dict[str, Any]],
+    cfg: Config
+) -> list[Announcement]:
     """
-    Return the first candidate that matches the fuzzy keyword criteria.
+    Return all candidates that match the fuzzy keyword criteria.
 
     The 'id' for de-duplication is based on the text (and PDF URL if present).
     """
     now_iso = _format_dt(_now())
     _debug(f"[detect] Checking {len(candidates)} candidates for {cfg.match_keywords!r}")
+
+    matches: list[Announcement] = []
+
     for cand in candidates:
         text = cand.get("text") or ""
         pdf_url = cand.get("pdf_url")
+
         if not text:
             continue
+
         if fuzzy_matches(text, cfg.match_keywords, cfg.similarity_threshold):
             ann_id = text
             if pdf_url:
                 ann_id = f"{text}|{pdf_url}"
+
             _debug(f"[detect] Match: {text[:120]!r}")
-            return Announcement(
-                id=ann_id,
-                text=text,
-                pdf_url=pdf_url,
-                first_detected=now_iso,
+
+            matches.append(
+                Announcement(
+                    id=ann_id,
+                    text=text,
+                    pdf_url=pdf_url,
+                    first_detected=now_iso,
+                )
             )
-    return None
+
+    return matches
 
 
 # ---------------------------------------------------------------------------
@@ -637,23 +650,25 @@ def run_monitor() -> int:
         candidates = extract_announcements(html)
         print(f"[monitor] Found {len(candidates)} candidate announcement(s)")
         
-        announcement = detect_announcement(candidates, cfg)
+        announcements = detect_announcements(candidates, cfg)
 
-        is_new = False
-        if announcement:
-            if not state.last_announcement or state.last_announcement.id != announcement.id:
-                is_new = True
-        else:
+        if not announcements:
             _debug("[monitor] No matching announcement found")
 
-        # Update state and send public alert if needed.
-        state = update_for_success(state, announcement, cfg)
-        save_state(cfg.state_file, state)
+        for announcement in announcements:
+            is_new = False
+            if not state.last_announcement or state.last_announcement.id != announcement.id:
+                is_new = True
 
-        if announcement and is_new:
-            send_public_announcement(telegram, cfg, announcement, cfg.target_url)
-        elif announcement and not is_new:
-            _debug("[monitor] Skipping alert (already notified)")
+            # Update state and send public alert if needed.
+            state = update_for_success(state, announcement, cfg)
+            save_state(cfg.state_file, state)
+
+            if is_new:
+                send_public_announcement(telegram, cfg, announcement, cfg.target_url)
+            else:
+                _debug("[monitor] Skipping alert (already notified)")
+
 
         print("[monitor] Run completed successfully.")
         return 0

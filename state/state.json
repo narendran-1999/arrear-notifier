@@ -1,13 +1,13 @@
 {
   "monitoring_enabled": true,
-  "last_run_time": "2026-02-18T18:56:05+0000",
+  "last_run_time": "2026-02-18T19:14:32+0000",
   "last_run_status": "success",
   "last_error_message": null,
   "last_announcement": {
-    "id": "WEEKEND REAPPEARANCE EXAMINTIONS MARCH 2026 - TIME TABLE PUBLISHED",
-    "text": "WEEKEND REAPPEARANCE EXAMINTIONS MARCH 2026 - TIME TABLE PUBLISHED",
-    "pdf_url": null,
-    "first_detected": "2026-02-18T18:56:05+0000"
+    "id": "REGISTRATION FOR REAPPEARANCE EXAMINATIONS - APR/MAY 2026|https://events.psgtech.ac.in/flashedu/images/files/RA_RGN..pdf",
+    "text": "REGISTRATION FOR REAPPEARANCE EXAMINATIONS - APR/MAY 2026",
+    "pdf_url": "https://events.psgtech.ac.in/flashedu/images/files/RA_RGN..pdf",
+    "first_detected": "2026-02-18T19:14:31+0000"
   },
   "error_signature": null,
   "error_last_alert_time": null
