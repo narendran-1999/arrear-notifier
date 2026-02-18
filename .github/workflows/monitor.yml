@@ -1,0 +1,52 @@
+name: Daily Announcement Monitor
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run monitor
+        env:
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+          MATCH_KEYWORDS: ${{ secrets.MATCH_KEYWORDS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+          STATE_FILE: state/state.json
+          MONITORING_ENABLED: ${{ secrets.MONITORING_ENABLED || 'true' }}
+          SIMILARITY_THRESHOLD: ${{ secrets.SIMILARITY_THRESHOLD || '0.6' }}
+          ERROR_THROTTLE_MINUTES: ${{ secrets.ERROR_THROTTLE_MINUTES || '60' }}
+        run: |
+          python -m monitor.monitor
+
+      - name: Commit updated state
+        if: ${{ success() || failure() }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- state/state.json; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+          git add state/state.json
+          git commit -m "Update monitor state [skip ci]"
+          git push
+

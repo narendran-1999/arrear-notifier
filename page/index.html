@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>College Announcement Monitor</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page__header">
+        <h1>College Announcement Monitor</h1>
+        <p class="page__subtitle">
+          Automatic arrear / exam notification watcher powered by GitHub Actions and Telegram.
+        </p>
+      </header>
+
+      <section class="card">
+        <h2 class="card__title">Monitoring Status</h2>
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-label">Monitoring:</span>
+            <span id="status-monitoring" class="status-value">Loading…</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Last run:</span>
+            <span id="status-last-run" class="status-value">Loading…</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Last result:</span>
+            <span id="status-last-result" class="status-value">Loading…</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Last error:</span>
+            <span id="status-last-error" class="status-value status-value--muted">None</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card__title">Latest Announcement (last 30 days)</h2>
+        <div id="announcement-empty" class="announcement-empty">
+          No active announcement in the last 30 days.
+        </div>
+        <article id="announcement-card" class="announcement" hidden>
+          <p id="announcement-text" class="announcement__text"></p>
+          <p class="announcement__meta">
+            <span>First detected: <span id="announcement-date"></span></span>
+          </p>
+          <p id="announcement-link-wrapper" class="announcement__links" hidden>
+            <a id="announcement-pdf" href="#" target="_blank" rel="noopener noreferrer">
+              View PDF
+            </a>
+          </p>
+        </article>
+      </section>
+
+      <section class="card card--secondary">
+        <h2 class="card__title">How this works</h2>
+        <ul class="card__list">
+          <li>Daily GitHub Actions job checks the college website for new announcements.</li>
+          <li>Relevant notifications are detected using fuzzy keyword matching.</li>
+          <li>New announcements are pushed to a Telegram channel and recorded in <code>state/state.json</code>.</li>
+          <li>This page reads the JSON file and shows the last detected announcement for 30 days.</li>
+        </ul>
+      </section>
+
+      <footer class="page__footer">
+        <span>Built with GitHub Actions, GitHub Pages, and Telegram Bot API.</span>
+      </footer>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
+

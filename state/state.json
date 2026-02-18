@@ -1,0 +1,10 @@
+{
+  "monitoring_enabled": true,
+  "last_run_time": null,
+  "last_run_status": null,
+  "last_error_message": null,
+  "last_announcement": null,
+  "error_signature": null,
+  "error_last_alert_time": null
+}
+
