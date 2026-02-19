@@ -68,16 +68,21 @@ async function loadState() {
     }
 
     if (data.error_history && data.error_history.length > 0) {
-      // Show the most recent error
+      // Show the most recent error (truncate visually but expose full text on hover)
       const latestError = data.error_history[0];
-      lastErrorEl.textContent = `${latestError.message} (${formatDate(latestError.timestamp)})`;
+      const fullErrorText = `${latestError.message} (${formatDate(latestError.timestamp)})`;
+      lastErrorEl.textContent = fullErrorText;
+      lastErrorEl.title = fullErrorText;
       lastErrorEl.classList.remove("status-value--muted");
     } else if (data.last_error_message) {
       // Fallback for legacy state
-      lastErrorEl.textContent = data.last_error_message;
+      const fullErrorText = String(data.last_error_message);
+      lastErrorEl.textContent = fullErrorText;
+      lastErrorEl.title = fullErrorText;
       lastErrorEl.classList.remove("status-value--muted");
     } else {
       lastErrorEl.textContent = "None";
+      lastErrorEl.title = "";
       lastErrorEl.classList.add("status-value--muted");
     }
 
@@ -140,7 +145,9 @@ async function loadState() {
     lastRunEl.textContent = "Unavailable";
     lastResultEl.textContent = "Error loading state";
     lastResultEl.style.color = "#f97316";
-    lastErrorEl.textContent = String(error);
+    const errText = String(error);
+    lastErrorEl.textContent = errText;
+    lastErrorEl.title = errText;
     lastErrorEl.classList.remove("status-value--muted");
 
     document.getElementById("announcement-list").innerHTML = "";
