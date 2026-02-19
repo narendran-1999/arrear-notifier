@@ -107,7 +107,16 @@ body {
 #announcement-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  /* a bit more space before the first item */
+  padding-top: 0.8rem;
+  /* slightly reduced gap between items */
+  gap: 0.5rem;
+}
+
+/* Fallback spacing for environments where `gap` for flex is not applied
+   (ensures spacing even when announcements are injected by JS). */
+.announcement + .announcement {
+  margin-top: 0.5rem;
 }
 
 .announcement__text {

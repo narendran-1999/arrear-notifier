@@ -36,7 +36,6 @@ async function loadState() {
   const monitoringEl = document.getElementById("status-monitoring");
   const lastRunEl = document.getElementById("status-last-run");
   const lastResultEl = document.getElementById("status-last-result");
-  const lastErrorEl = document.getElementById("status-last-error");
   const annEmptyEl = document.getElementById("announcement-empty");
 
   try {
@@ -67,24 +66,7 @@ async function loadState() {
       lastResultEl.style.color = "";
     }
 
-    if (data.error_history && data.error_history.length > 0) {
-      // Show the most recent error (truncate visually but expose full text on hover)
-      const latestError = data.error_history[0];
-      const fullErrorText = `${latestError.message} (${formatDate(latestError.timestamp)})`;
-      lastErrorEl.textContent = fullErrorText;
-      lastErrorEl.title = fullErrorText;
-      lastErrorEl.classList.remove("status-value--muted");
-    } else if (data.last_error_message) {
-      // Fallback for legacy state
-      const fullErrorText = String(data.last_error_message);
-      lastErrorEl.textContent = fullErrorText;
-      lastErrorEl.title = fullErrorText;
-      lastErrorEl.classList.remove("status-value--muted");
-    } else {
-      lastErrorEl.textContent = "None";
-      lastErrorEl.title = "";
-      lastErrorEl.classList.add("status-value--muted");
-    }
+    // The UI no longer shows the last error; keep monitoring status minimal.
 
     // Handle Announcements
     const announcementListEl = document.getElementById("announcement-list");
@@ -145,10 +127,8 @@ async function loadState() {
     lastRunEl.textContent = "Unavailable";
     lastResultEl.textContent = "Error loading state";
     lastResultEl.style.color = "#f97316";
-    const errText = String(error);
-    lastErrorEl.textContent = errText;
-    lastErrorEl.title = errText;
-    lastErrorEl.classList.remove("status-value--muted");
+    // Do not display error details in the UI; log to console for debugging.
+    console.error(error);
 
     document.getElementById("announcement-list").innerHTML = "";
     document.getElementById("announcement-empty").hidden = false;
