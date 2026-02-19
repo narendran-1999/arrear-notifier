@@ -8,7 +8,7 @@ Responsibilities:
 */
 
 // Relative path from the page to the JSON state file committed by the monitor.
-const STATE_URL = "../state/state.json";
+const STATE_URL = "state/state.json";
 
 // Convert an ISO datetime string (from Python) into a human-readable string
 // based on the user's local timezone and locale.
