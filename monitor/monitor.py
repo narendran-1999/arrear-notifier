@@ -646,7 +646,7 @@ def send_public_announcement(telegram: TelegramClient, cfg: Config, ann: Announc
         "",
         f"{ann.text}",
         "",
-        f"🔗 <a href=\"{target_url}\">Source page</a>",
+        f"🔗 <a href=\"{target_url}\">College website</a>",
     ]
     if ann.pdf_url:
         lines.append(f"📄 <a href=\"{ann.pdf_url}\">PDF link</a>")
