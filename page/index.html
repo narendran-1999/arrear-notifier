@@ -38,21 +38,27 @@
       </section>
 
       <section class="card">
-        <h2 class="card__title">Latest Announcement (last 30 days)</h2>
-        <div id="announcement-empty" class="announcement-empty">
+        <h2 class="card__title">Recent Announcements (last 30 days)</h2>
+        <div id="announcement-empty" class="announcement-empty" hidden>
           No active announcement in the last 30 days.
         </div>
-        <article id="announcement-card" class="announcement" hidden>
-          <p id="announcement-text" class="announcement__text"></p>
-          <p class="announcement__meta">
-            <span>First detected: <span id="announcement-date"></span></span>
-          </p>
-          <p id="announcement-link-wrapper" class="announcement__links" hidden>
-            <a id="announcement-pdf" href="#" target="_blank" rel="noopener noreferrer">
-              View PDF
-            </a>
-          </p>
-        </article>
+        <div id="announcement-list">
+          <!-- Announcements will be injected here by script.js -->
+        </div>
+        
+        <template id="announcement-template">
+          <article class="announcement">
+            <p class="announcement__text"></p>
+            <p class="announcement__meta">
+              <span>First detected: <span class="announcement-date"></span></span>
+            </p>
+            <p class="announcement__links" hidden>
+              <a class="announcement-pdf" href="#" target="_blank" rel="noopener noreferrer">
+                View PDF
+              </a>
+            </p>
+          </article>
+        </template>
       </section>
 
       <section class="card card--secondary">
@@ -60,7 +66,7 @@
         <div class="link-grid">
           <!-- Update these URLs to match the actual college systems -->
           <a
-            href="https://example.edu"
+            href="https://www.psgtech.edu/"
             target="_blank"
             rel="noopener noreferrer"
             class="link-grid__item"
@@ -68,7 +74,7 @@
             College website
           </a>
           <a
-            href="https://students.example.edu"
+            href="https://ecampus.psgtech.ac.in/studzone2/"
             target="_blank"
             rel="noopener noreferrer"
             class="link-grid__item"

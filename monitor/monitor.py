@@ -130,35 +130,58 @@ class MonitorState:
     monitoring_enabled: bool = True
     last_run_time: Optional[str] = None
     last_run_status: Optional[str] = None  # "success" | "failure"
-    last_error_message: Optional[str] = None
-    last_announcement: Optional[Announcement] = None
+    announcement_history: list[Announcement] = None
+    error_history: list[Dict[str, str]] = None
     error_signature: Optional[str] = None
     error_last_alert_time: Optional[str] = None
 
+    def __post_init__(self):
+        if self.announcement_history is None:
+            self.announcement_history = []
+        if self.error_history is None:
+            self.error_history = []
+
     def to_json(self) -> Dict[str, Any]:
         data: Dict[str, Any] = asdict(self)
-        if self.last_announcement:
-            data["last_announcement"] = asdict(self.last_announcement)
+        data["announcement_history"] = [asdict(a) for a in self.announcement_history]
         return data
 
     @classmethod
     def from_json(cls, raw: Dict[str, Any]) -> "MonitorState":
-        ann_raw = raw.get("last_announcement")
-        announcement: Optional[Announcement] = None
-        if isinstance(ann_raw, dict):
-            announcement = Announcement(
-                id=str(ann_raw.get("id", "")),
-                text=str(ann_raw.get("text", "")),
-                pdf_url=ann_raw.get("pdf_url"),
-                first_detected=str(ann_raw.get("first_detected", "")),
-            )
+        # Migrate legacy single announcement to history if needed
+        history = []
+        if "announcement_history" in raw:
+            for item in raw["announcement_history"]:
+                history.append(Announcement(
+                    id=str(item.get("id", "")),
+                    text=str(item.get("text", "")),
+                    pdf_url=item.get("pdf_url"),
+                    first_detected=str(item.get("first_detected", "")),
+                ))
+        elif "last_announcement" in raw and raw["last_announcement"]:
+            # Migration path for existing state file
+            old_ann = raw["last_announcement"]
+            history.append(Announcement(
+                id=str(old_ann.get("id", "")),
+                text=str(old_ann.get("text", "")),
+                pdf_url=old_ann.get("pdf_url"),
+                first_detected=str(old_ann.get("first_detected", "")),
+            ))
+
+        # Migrate legacy single error to history if needed
+        errors = raw.get("error_history", [])
+        if not errors and raw.get("last_error_message"):
+            errors.append({
+                "timestamp": raw.get("last_run_time", ""),
+                "message": raw.get("last_error_message")
+            })
 
         return cls(
             monitoring_enabled=bool(raw.get("monitoring_enabled", True)),
             last_run_time=raw.get("last_run_time"),
             last_run_status=raw.get("last_run_status"),
-            last_error_message=raw.get("last_error_message"),
-            last_announcement=announcement,
+            announcement_history=history,
+            error_history=errors,
             error_signature=raw.get("error_signature"),
             error_last_alert_time=raw.get("error_last_alert_time"),
         )
@@ -570,10 +593,17 @@ def should_send_error_alert(state: MonitorState, signature: str, cfg: Config) ->
 
 def update_for_error(state: MonitorState, error_message: str, cfg: Config) -> MonitorState:
     """Update state for a failure and return it."""
-    state.last_run_time = _format_dt(_now())
+    now_str = _format_dt(_now())
+    state.last_run_time = now_str
     state.last_run_status = "failure"
-    state.last_error_message = error_message
     state.monitoring_enabled = cfg.monitoring_enabled
+    
+    # Add to error history (prepend)
+    new_error = {"timestamp": now_str, "message": error_message}
+    state.error_history.insert(0, new_error)
+    # Keep last 50 errors
+    state.error_history = state.error_history[:50]
+    
     return state
 
 
@@ -581,16 +611,27 @@ def update_for_success(state: MonitorState, announcement: Optional[Announcement]
     """Update state for a successful run and return it."""
     state.last_run_time = _format_dt(_now())
     state.last_run_status = "success"
-    state.last_error_message = None
     state.error_signature = None
     state.error_last_alert_time = None
     state.monitoring_enabled = cfg.monitoring_enabled
 
     if announcement:
-        if state.last_announcement and state.last_announcement.id == announcement.id:
-            # Preserve original first_detected date.
-            announcement.first_detected = state.last_announcement.first_detected
-        state.last_announcement = announcement
+        # Check if this announcement ID already exists in history
+        existing_index = next((i for i, a in enumerate(state.announcement_history) if a.id == announcement.id), -1)
+        
+        if existing_index != -1:
+            # Update existing entry (preserve original detection time)
+            original_detection = state.announcement_history[existing_index].first_detected
+            announcement.first_detected = original_detection
+            # Move to top? Or just update in place? Let's move to top to show it's still active/relevant
+            state.announcement_history.pop(existing_index)
+            state.announcement_history.insert(0, announcement)
+        else:
+            # new announcement
+            state.announcement_history.insert(0, announcement)
+        
+        # Keep last 50 announcements
+        state.announcement_history = state.announcement_history[:50]
 
     return state
 
@@ -656,9 +697,12 @@ def run_monitor() -> int:
             _debug("[monitor] No matching announcement found")
 
         for announcement in announcements:
-            is_new = False
-            if not state.last_announcement or state.last_announcement.id != announcement.id:
-                is_new = True
+            is_new = True
+            # Check if recently detected
+            for past_ann in state.announcement_history:
+                if past_ann.id == announcement.id:
+                    is_new = False
+                    break
 
             # Update state and send public alert if needed.
             state = update_for_success(state, announcement, cfg)
