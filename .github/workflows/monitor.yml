@@ -2,7 +2,7 @@ name: Daily Announcement Monitor
 
 on:
   schedule:
-    - cron: "11 5 * * *"
+    - cron: "12 17 * * *"
   workflow_dispatch:
 
 jobs:
