@@ -2,9 +2,9 @@ name: Daily Announcement Monitor
 
 on:
   schedule:
-    - cron: "29 17 * * *"
+    - cron: "32 18 * * *"
   workflow_dispatch:
-
+#some comment
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
