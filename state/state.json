@@ -1,1 +1,14 @@
-
+{
+  "monitoring_enabled": true,
+  "last_run_time": "2026-02-20T18:46:33+0000",
+  "last_run_status": "failure",
+  "announcement_history": [],
+  "error_history": [
+    {
+      "timestamp": "2026-02-20T18:46:33+0000",
+      "message": "ConnectionError: HTTPSConnectionPool(host='www.psgtech.edu', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"HTTPSConnection(host='www.psgtech.edu', port=443): Failed to resolve 'www.psgtech.edu' ([Errno -3] Temporary failure in name resolution)\"))"
+    }
+  ],
+  "error_signature": "ConnectionError",
+  "error_last_alert_time": "2026-02-20T18:46:34+0000"
+}
