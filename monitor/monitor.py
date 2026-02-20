@@ -38,7 +38,7 @@ import urllib3
 # ---------------------------------------------------------------------------
 
 # College website URL to monitor for announcements.
-DEFAULT_TARGET_URL = "https://www.psgtech.edu/"
+DEFAULT_TARGET_URL = "https://www.psgtech.edu"
 
 # Comma-separated keywords used for fuzzy matching against announcement text.
 DEFAULT_MATCH_KEYWORDS = "time limit exceeded, reappearance"
