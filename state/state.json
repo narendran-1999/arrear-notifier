@@ -1,8 +1,21 @@
 {
   "monitoring_enabled": true,
-  "last_run_time": "2026-02-20T18:49:43+0000",
-  "last_run_status": "failure",
-  "announcement_history": [],
+  "last_run_time": "2026-02-20T18:53:36+0000",
+  "last_run_status": "success",
+  "announcement_history": [
+    {
+      "id": "REGISTRATION FOR REAPPEARANCE EXAMINATIONS - APR/MAY 2026|https://events.psgtech.ac.in/flashedu/images/files/RA_RGN..pdf",
+      "text": "REGISTRATION FOR REAPPEARANCE EXAMINATIONS - APR/MAY 2026",
+      "pdf_url": "https://events.psgtech.ac.in/flashedu/images/files/RA_RGN..pdf",
+      "first_detected": "2026-02-20T18:53:36+0000"
+    },
+    {
+      "id": "WEEKEND REAPPEARANCE EXAMINTIONS MARCH 2026 - TIME TABLE PUBLISHED",
+      "text": "WEEKEND REAPPEARANCE EXAMINTIONS MARCH 2026 - TIME TABLE PUBLISHED",
+      "pdf_url": null,
+      "first_detected": "2026-02-20T18:53:36+0000"
+    }
+  ],
   "error_history": [
     {
       "timestamp": "2026-02-20T18:49:43+0000",
@@ -17,6 +30,6 @@
       "message": "ConnectionError: HTTPSConnectionPool(host='www.psgtech.edu', port=443): Max retries exceeded with url: / (Caused by NameResolutionError(\"HTTPSConnection(host='www.psgtech.edu', port=443): Failed to resolve 'www.psgtech.edu' ([Errno -3] Temporary failure in name resolution)\"))"
     }
   ],
-  "error_signature": "ConnectionError",
-  "error_last_alert_time": "2026-02-20T18:46:34+0000"
+  "error_signature": null,
+  "error_last_alert_time": null
 }
