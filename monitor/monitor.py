@@ -37,20 +37,24 @@ import urllib3
 # Core, non-secret configuration
 # ---------------------------------------------------------------------------
 
+# Note: Monitoring on/off is controlled via MONITORING_ENABLED environment variable (set via GitHub Secrets).
+# Defaults to True if not set.
+
 # College website URL to monitor for announcements.
 DEFAULT_TARGET_URL = "https://www.psgtech.edu"
 
-# Comma-separated keywords used for fuzzy matching against announcement text.
+# Comma-separated keywords used for matching against announcement text.
 DEFAULT_MATCH_KEYWORDS = "time limit exceeded, reappearance"
 
-# Similarity threshold in the range [0, 1]. Higher = stricter match.
+# Similarity threshold (for fuzzy matching) in the range [0, 1]. Higher = stricter match.
 DEFAULT_SIMILARITY_THRESHOLD = 0.8
 
 # Minimum minutes between repeated error alerts with the same signature.
 DEFAULT_ERROR_THROTTLE_MINUTES = 60
 
-# Note: Monitoring on/off is controlled via MONITORING_ENABLED environment
-# variable (set via GitHub Secrets). There is no constant here to avoid confusion.
+# Maximum history sizes for announcements and errors stored in the state file.
+HISTORY_MAX_ANNOUNCEMENTS = 10
+HISTORY_MAX_ERRORS = 50
 
 # ISO format for datetime strings
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
@@ -601,8 +605,8 @@ def update_for_error(state: MonitorState, error_message: str, cfg: Config) -> Mo
     # Add to error history (prepend)
     new_error = {"timestamp": now_str, "message": error_message}
     state.error_history.insert(0, new_error)
-    # Keep last 50 errors
-    state.error_history = state.error_history[:50]
+    # Keep last N errors
+    state.error_history = state.error_history[:HISTORY_MAX_ERRORS]
     
     return state
 
@@ -630,8 +634,8 @@ def update_for_success(state: MonitorState, announcement: Optional[Announcement]
             # new announcement
             state.announcement_history.insert(0, announcement)
         
-        # Keep last 50 announcements
-        state.announcement_history = state.announcement_history[:50]
+        # Keep last N announcements
+        state.announcement_history = state.announcement_history[:HISTORY_MAX_ANNOUNCEMENTS]
 
     return state
 
