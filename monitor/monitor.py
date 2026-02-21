@@ -44,7 +44,7 @@ import urllib3
 DEFAULT_TARGET_URL = "https://www.psgtech.edu"
 
 # Comma-separated keywords used for matching against announcement text.
-DEFAULT_MATCH_KEYWORDS = "time limit exceeded, reappearance"
+DEFAULT_MATCH_KEYWORDS = "time limit exceeded"
 
 # Similarity threshold (for fuzzy matching) in the range [0, 1]. Higher = stricter match.
 DEFAULT_SIMILARITY_THRESHOLD = 0.8
