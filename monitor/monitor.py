@@ -325,29 +325,55 @@ class TelegramClient:
 def fetch_page(url: str) -> str:
     """
     Fetch target page and return HTML text.
-    
-    Uses a custom SSL context with relaxed security level to handle websites with
-    weak SSL configurations (e.g., small Diffie-Hellman keys) that browsers accept
-    but Python's SSL library rejects by default. This is common on older college websites.
+
+    Uses:
+    - Relaxed SSL context (for weak DH keys on older servers)
+    - Automatic retries with exponential backoff for transient failures
+      (DNS errors, timeouts, connection resets, 5xx responses)
     """
     import ssl
     from requests.adapters import HTTPAdapter
     from urllib3.poolmanager import PoolManager
-    
-    # Create SSL context with relaxed security level for weak DH keys
+    from urllib3.util.retry import Retry
+
+    # ------------------------------------------------------------------
+    # Retry strategy (handles transient DNS / connection issues)
+    # ------------------------------------------------------------------
+    retry_strategy = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        status=5,
+        backoff_factor=2,  # 2s, 4s, 8s, 16s...
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+    )
+
+    # ------------------------------------------------------------------
+    # Relaxed SSL context (for weak SSL configs)
+    # ------------------------------------------------------------------
     ssl_context = ssl.create_default_context()
     ssl_context.set_ciphers("DEFAULT:@SECLEVEL=1")
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    
-    # Use a custom HTTP adapter with the relaxed SSL context
+
     class CustomHTTPAdapter(HTTPAdapter):
+        def __init__(self, *args, **kwargs):
+            super().__init__(max_retries=retry_strategy, *args, **kwargs)
+
         def init_poolmanager(self, *args, **kwargs):
             kwargs["ssl_context"] = ssl_context
             return super().init_poolmanager(*args, **kwargs)
-    
+
+    # ------------------------------------------------------------------
+    # Session with retry + custom SSL
+    # ------------------------------------------------------------------
     session = requests.Session()
-    session.mount("https://", CustomHTTPAdapter())
+    adapter = CustomHTTPAdapter()
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
     resp = session.get(url, timeout=30, verify=False)
     resp.raise_for_status()
     return resp.text
