@@ -1,43 +1,100 @@
 # Arrear Notifier
 
-## Daily Execution
-
-- **GITHUB ACTIONS & YML:**
-    Avoid touching workflow YML files or GitHub Actions if you do not understand the scheduler; changes may affect job timing.
-- **Scheduled runs (observed):**
-    - Scheduled window ~09:00–12:00 IST
-    - Observed run time ~10:20 AM IST
-    - Observed execution delays from cron time: min. 1h 19m, max. 2h 7m.
+A simple Python project that checks a college website for specific announcements and sends alerts to Telegram.
+It saves state in `state/state.json` to avoid duplicate notifications and to track errors.
 
 ---
 
-## Project Overview
+## Project Structure (Modular Design)
 
-This small project detect notifications on a college website to send Telegram alerts, and records state in `state/state.json` to avoid duplicate notifications.
+The project is split into small, focused modules.
 
-## Files
+### `utils.py`
 
-- `monitor/monitor.py` — main monitoring logic
-- `state/state.json` — current known state (read & updated by the monitor)
-- `index.html` — bot monitoring page
-- `page-assets/` — frontend assets for bot monitoring page
+* Constants (URLs, keywords, limits)
+* Date and time helpers (`now()`, `format_dt()`, `parse_dt()`)
+* Debug logging
+* Environment setup for local testing
 
-## Quick Start
+### `models.py`
 
-1. Create and activate a virtual environment (recommended):
+* `Announcement` — represents a detected announcement
+* `MonitorState` — represents saved JSON state
+* `Config` — runtime configuration model
+
+### `config.py`
+
+* `load_config()` — loads configuration from environment variables
+
+### `state.py`
+
+* `load_state()` / `save_state()` — read/write `state.json`
+* `update_for_error()` / `update_for_success()` — update state correctly
+* `should_send_error_alert()` — prevents repeated error spam
+
+### `scraper.py`
+
+* `fetch_page()` — fetch website with retries
+* `extract_announcements()` — parse HTML
+* `fuzzy_matches()` — substring matching + fuzzy matching fallback (handles typos/partial matches)
+* `detect_announcements()` — filter relevant announcements
+
+### `telegram_client.py`
+
+* `TelegramClient` — Telegram API wrapper
+* `send_public_announcement()` — send message to channel
+* `send_private_error()` — send error to owner
+
+### `monitor_core.py`
+
+* `run_monitor()` — main orchestration logic
+* Flow: fetch → extract → detect → send → save
+* Handles errors and updates state safely
+
+### `monitor.py` (CLI Entry Point)
+
+Run the monitor:
+
+```bash
+python -m monitor.monitor
+```
+
+---
+
+## Dependency Flow
+
+```
+utils
+models
+   ↓
+config
+state
+scraper
+telegram_client
+   ↓
+monitor_core
+   ↓
+monitor.py (CLI)
+```
+
+---
+
+## Setup
+
+### 1. Create virtual environment (recommended)
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 ```
 
-2. Install dependencies:
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Configure environment variables (example):
+### 3. Set environment variables
 
 ```bash
 export TELEGRAM_BOT_TOKEN="<your-bot-token>"
@@ -45,14 +102,39 @@ export TELEGRAM_CHANNEL_ID="<your-channel-id>"
 export TELEGRAM_OWNER_CHAT_ID="<your-chat-id>"
 ```
 
-## Running Locally
+---
 
-Run the monitor script manually for testing:
+## Running Locally
 
 ```bash
 python -m monitor.monitor
 ```
 
+---
+
+## Importing in Python
+
+```python
+from monitor import run_monitor, load_config, Announcement
+
+result = run_monitor()
+```
+
+---
+
+## Testing Individual Components
+
+```python
+from monitor import load_config, fetch_page, extract_announcements, detect_announcements
+
+cfg = load_config()
+html = fetch_page(cfg.target_url)
+candidates = extract_announcements(html)
+announcements = detect_announcements(candidates, cfg)
+```
+
+---
+
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT License — see the [LICENSE](LICENSE) file for details.
