@@ -301,7 +301,7 @@ class TelegramClient:
         """
         Send a Telegram message.
 
-        Errors are logged to stderr but do not crash the monitor.
+        Raises an exception if the send fails, so the caller knows to retry.
         """
         url = f"{self.base_url}/sendMessage"
         payload = {
@@ -313,9 +313,9 @@ class TelegramClient:
         try:
             resp = requests.post(url, data=payload, timeout=15)
             if not resp.ok:
-                print(f"[telegram] Failed to send message: {resp.status_code} {resp.text}", file=sys.stderr)
-        except Exception as exc:
-            print(f"[telegram] Exception while sending message: {exc}", file=sys.stderr)
+                raise RuntimeError(f"Telegram API error {resp.status_code}: {resp.text}")
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Failed to send Telegram message: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -684,10 +684,19 @@ def send_public_announcement(telegram: TelegramClient, cfg: Config, ann: Announc
     telegram.send_message(cfg.telegram_channel_id, text, parse_mode="HTML", disable_web_page_preview=False)
 
 
-def send_private_error(telegram: TelegramClient, cfg: Config, message: str) -> None:
-    """Send an error alert to the owner only."""
+def send_private_error(telegram: TelegramClient, cfg: Config, message: str) -> bool:
+    """
+    Send an error alert to the owner only.
+    
+    Returns True if sent successfully, False if it failed.
+    """
     text = f"⚠️ <b>Monitoring error</b>\n\n<code>{message}</code>"
-    telegram.send_message(cfg.telegram_owner_chat_id, text, parse_mode="HTML", disable_web_page_preview=True)
+    try:
+        telegram.send_message(cfg.telegram_owner_chat_id, text, parse_mode="HTML", disable_web_page_preview=True)
+        return True
+    except Exception as exc:
+        print(f"[telegram] Failed to send error alert: {exc}", file=sys.stderr)
+        return False
 
 # ---------------------------------------------------------------------------
 # Run monitoring
@@ -712,8 +721,12 @@ def run_monitor() -> int:
         # Still update state so the webpage reflects OFF status.
         state.monitoring_enabled = False
         state.last_run_time = _format_dt(_now())
-        save_state(cfg.state_file, state)
         print("[monitor] Monitoring disabled via configuration.")
+        try:
+            save_state(cfg.state_file, state)
+        except Exception as exc:
+            print(f"[monitor] Failed to save state: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
         return 0
 
     try:
@@ -725,24 +738,36 @@ def run_monitor() -> int:
 
         if not announcements:
             _debug("[monitor] No matching announcement found")
+            # Still update state with successful run status even if no announcements found
+            state = update_for_success(state, None, cfg)
+            try:
+                save_state(cfg.state_file, state)
+            except Exception as exc:
+                print(f"[monitor] Failed to save state: {type(exc).__name__}: {exc}", file=sys.stderr)
+                raise
+        else:
+            for announcement in announcements:
+                is_new = True
+                # Check if recently detected
+                for past_ann in state.announcement_history:
+                    if past_ann.id == announcement.id:
+                        is_new = False
+                        break
 
-        for announcement in announcements:
-            is_new = True
-            # Check if recently detected
-            for past_ann in state.announcement_history:
-                if past_ann.id == announcement.id:
-                    is_new = False
-                    break
-
-            # Update state and send public alert if needed.
-            state = update_for_success(state, announcement, cfg)
-            save_state(cfg.state_file, state)
-
-            if is_new:
-                send_public_announcement(telegram, cfg, announcement, cfg.target_url)
-            else:
-                _debug("[monitor] Skipping alert (already notified)")
-
+                # Send alert FIRST (if needed), before updating state
+                # If send fails, exception propagates without saving state
+                if is_new:
+                    send_public_announcement(telegram, cfg, announcement, cfg.target_url)
+                else:
+                    _debug("[monitor] Skipping alert (already notified)")
+                
+                # Only update and save state after successful send
+                state = update_for_success(state, announcement, cfg)
+                try:
+                    save_state(cfg.state_file, state)
+                except Exception as exc:
+                    print(f"[monitor] Failed to save state: {type(exc).__name__}: {exc}", file=sys.stderr)
+                    raise
 
         print("[monitor] Run completed successfully.")
         return 0
@@ -754,11 +779,19 @@ def run_monitor() -> int:
         state = update_for_error(state, error_message, cfg)
 
         if should_send_error_alert(state, signature, cfg):
-            send_private_error(telegram, cfg, error_message)
-            state.error_signature = signature
-            state.error_last_alert_time = _format_dt(_now())
+            if send_private_error(telegram, cfg, error_message):
+                # Only mark as sent if actually succeeded
+                state.error_signature = signature
+                state.error_last_alert_time = _format_dt(_now())
+            else:
+                # Send failed; don't update alert state so we'll try again next time
+                pass
 
-        save_state(cfg.state_file, state)
+        try:
+            save_state(cfg.state_file, state)
+        except Exception as save_exc:
+            print(f"[monitor] Failed to save state: {type(save_exc).__name__}: {save_exc}", file=sys.stderr)
+
         return 1
 
 
