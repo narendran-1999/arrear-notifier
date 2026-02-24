@@ -11,7 +11,7 @@ The project is split into small, focused modules.
 
 ### `utils.py`
 
-* Constants (URLs, keywords, limits)
+* Constants (site URL, keywords to search, history limits)
 * Date and time helpers (`now()`, `format_dt()`, `parse_dt()`)
 * Debug logging
 * Environment setup for local testing
